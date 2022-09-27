@@ -1090,8 +1090,26 @@ class BandlimitedClickFactory(FixedWaveform):
 ################################################################################
 # Wavfiles
 ################################################################################
+
+def remove_clicks(w, max_threshold=15, verbose=False):
+
+    w_clean = w
+
+    # log compress everything > 67% of max
+    crossover = 0.67 * max_threshold
+    ii = (w>crossover)
+    w_clean[ii] = crossover + np.log(w_clean[ii]-crossover+1);
+    jj = (w<-crossover)
+    w_clean[jj] = -crossover - np.log(-w_clean[jj]-crossover+1);
+
+    if verbose:
+       print(f'bins compressed down: {ii.sum()} up: {jj.sum()} max {np.abs(w).max():.2f}-->{np.abs(w_clean).max():.2f}')
+
+    return w_clean
+
 @fast_cache
-def load_wav(fs, filename, level, calibration, normalization='pe'):
+def load_wav(fs, filename, level, calibration, normalization='pe', norm_fixed_scale=1,
+             force_duration=None):
     '''
     Load wav file, scale, and resample
 
@@ -1110,11 +1128,15 @@ def load_wav(fs, filename, level, calibration, normalization='pe'):
     calibration : instance of Calibration
         Used to scale waveform to appropriate peSPL. If not provided,
         waveform is not scaled.
-    normalization : {'pe', 'rms'}
+    normalization : {'pe', 'rms', 'fixed'}
         Method for rescaling waveform. If `'pe'`, rescales to peak-equivalent
         so the max value of the waveform matches the target level. If `'rms'`,
         rescales so that the RMS value of the waveform matches the target
-        level.
+        level. If 'fixed', scale by a fixed value (norm_fixed_scale)
+    norm_fixed_scale : float
+        if normalization=='fixed', multiply the wavform by this value.
+    force_duration : {None, float}
+        if not None, truncate or zero-pad waveform to force_duration sec
     '''
     log.warning('Loading %s', filename)
     file_fs, waveform = wavfile.read(filename, mmap=True)
@@ -1128,12 +1150,24 @@ def load_wav(fs, filename, level, calibration, normalization='pe'):
         waveform = waveform / waveform.max()
     elif normalization == 'rms':
         waveform = waveform / util.rms(waveform)
+    elif normalization == 'fixed':
+        waveform = waveform * norm_fixed_scale
+        waveform = remove_clicks(waveform, max_threshold=15)
     else:
         raise ValueError(f'Unrecognized normalization: {normalization}')
 
     if calibration is not None:
         sf = calibration.get_sf(1e3, level)
         waveform *= sf
+
+    if force_duration is not None:
+        final_samples = int(force_duration*file_fs)
+        if len(waveform) > final_samples:
+            waveform = waveform[:final_samples]
+            log.info(f'truncated to {final_samples} samples')
+        elif len(waveform) < final_samples:
+            waveform = np.concatenate([waveform, np.zeros(final_samples-len(waveform))])
+            log.info(f'padded with {final_samples-len(waveform)} samples')
 
     # Resample if sampling rate does not match
     if fs != file_fs:
@@ -1146,19 +1180,22 @@ def load_wav(fs, filename, level, calibration, normalization='pe'):
 class WavFileFactory(FixedWaveform):
 
     def __init__(self, fs, filename, level=None, calibration=None,
-                 normalization='pe'):
+                 normalization='pe', norm_fixed_scale=1, force_duration=None):
         self.fs = fs
         self.filename = filename
         self.level = level
         self.calibration = calibration
         self.normalization = normalization
+        self.norm_fixed_scale = norm_fixed_scale
+        self.force_duration = force_duration
         self.reset()
 
     @property
     def waveform(self):
         return load_wav(self.fs, self.filename, self.level, self.calibration,
-                        normalization=self.normalization)
-
+                        normalization=self.normalization,
+                        norm_fixed_scale=self.norm_fixed_scale,
+                        force_duration=self.force_duration)
 
 class WavSequenceFactory(ContinuousWaveform):
 
