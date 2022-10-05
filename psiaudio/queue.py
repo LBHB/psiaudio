@@ -116,7 +116,7 @@ class AbstractSignalQueue:
         if t is not None:
             self.cancel(t)
             self.requeue(t)
-            self.rewind_samples(t)
+            self.rewind_samples(t, False)
 
     def cancel(self, t, delay=0):
         for info in self._generated[::-1]:
