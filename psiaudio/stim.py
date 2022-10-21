@@ -1091,7 +1091,7 @@ class BandlimitedClickFactory(FixedWaveform):
 # Wavfiles
 ################################################################################
 
-def remove_clicks(w, max_threshold=15, verbose=False):
+def remove_clicks(w, max_threshold=10, verbose=False):
 
     w_clean = w
 
@@ -1138,7 +1138,7 @@ def load_wav(fs, filename, level, calibration, normalization='pe', norm_fixed_sc
     force_duration : {None, float}
         if not None, truncate or zero-pad waveform to force_duration sec
     '''
-    log.warning('Loading %s', filename)
+    #log.warning('Loading wav file %r', locals())
     file_fs, waveform = wavfile.read(filename, mmap=True)
     # Rescale to range -1.0 to 1.0
     if waveform.dtype != np.float32:
@@ -1159,6 +1159,11 @@ def load_wav(fs, filename, level, calibration, normalization='pe', norm_fixed_sc
     if calibration is not None:
         sf = calibration.get_sf(1e3, level)
         waveform *= sf
+
+    waveform[waveform>5]=5
+    waveform[waveform<-5]=-5
+    #if np.max(np.abs(waveform)) > 5:
+    #    raise ValueError('waveform value too large')
 
     if force_duration is not None:
         final_samples = int(force_duration*file_fs)
